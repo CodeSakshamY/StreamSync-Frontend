@@ -1,160 +1,88 @@
-"use client"
-import { useEffect, useRef, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import type { SyncChannel } from "@/lib/ws-client"
-
-type ChatMsg = { user: string; text: string; ts: number }
-
-export default function ChatPanel({
-  roomId,
-  username,
-  channel,
-}: { roomId: string; username: string; channel: SyncChannel }) {
-  const [msgs, setMsgs] = useState<ChatMsg[]>([])
-  const [text, setText] = useState("")
-  const endRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [msgs])
-
-  function send() {
-    if (!text.trim()) return
-    const m: ChatMsg = { user: username, text, ts: Date.now() }
-    setMsgs((prev) => [...prev, m])
-    channel.send({ type: "chat", text: m.text, user: m.user, ts: m.ts })
-    setText("")
-  }
-
-  // Receive chat broadcasts for this room
-  useEffect(() => {
-    const eventName = `wp_chat_${roomId}`
-    const onChat = (e: Event) => {
-      const ce = e as CustomEvent
-      const { user, text, ts } = ce.detail as ChatMsg
-      setMsgs((prev) => [...prev, { user, text, ts }])
-    }
-    window.addEventListener(eventName, onChat as any)
-    return () => window.removeEventListener(eventName, onChat as any)
-  }, [roomId])
-
-  return (
-    <Card className="h-full">
-      <CardHeader className="py-3">
-        <CardTitle className="text-sm">Live Chat</CardTitle>
-      </CardHeader>
-      <CardContent className="grid h-[420px] grid-rows-[1fr_auto] gap-2">
-        <ScrollArea className="pr-2">
-          <ul className="space-y-2">
-            {msgs.map((m, idx) => (
-              <li key={idx}>
-                <span className="text-xs text-muted-foreground">{new Date(m.ts).toLocaleTimeString()} • </span>
-                <span className="font-medium">{m.user}:</span> <span>{m.text}</span>
-              </li>
-            ))}
-          </ul>
-          <div ref={endRef} />
-        </ScrollArea>
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Type a message"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") send()
-            }}
-          />
-          <Button onClick={send}>Send</Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-const { data, error } = await supabase
-  .from("posts")
-  .insert([{ title: "My Meme", image_url: imageUrl }]);
-import { useState } from "react";
-import { uploadImage } from "@/lib/uploadImage";
+"use client";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 export default function ChatPanel() {
-  const [file, setFile] = useState<File | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
-  const handleUpload = async () => {
-    if (!file) return;
-    const url = await uploadImage(file, "memes");
-    if (url) {
-      // send image URL as a message
-      sendMessage({ type: "image", content: url });
+  // Fetch existing messages
+  useEffect(() => {
+    fetchMessages();
+
+    // Real-time updates
+    const channel = supabase
+      .channel("chat-room")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchMessages = async () => {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .order("created_at", { ascending: true });
+    setMessages(data || []);
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage && !imageFile) return;
+
+    let imageUrl = null;
+    if (imageFile) {
+      const { data, error } = await supabase.storage
+        .from("memes")
+        .upload(`chat/${Date.now()}-${imageFile.name}`, imageFile);
+      if (!error) {
+        const { data: publicUrl } = supabase.storage
+          .from("memes")
+          .getPublicUrl(data.path);
+        imageUrl = publicUrl.publicUrl;
+      }
     }
+
+    await supabase.from("messages").insert({
+      content: newMessage,
+      image_url: imageUrl,
+      user_id: "demo-user", // Replace with auth user ID if using auth
+    });
+
+    setNewMessage("");
+    setImageFile(null);
   };
 
   return (
     <div>
-      <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-      <button onClick={handleUpload}>Upload Image</button>
-      {/* existing message input + send button here */}
-    </div>
-  );
-}
-"use client";
-import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import { uploadImage } from "@/lib/uploadImage";
+      <div className="chat-window">
+        {messages.map((msg) => (
+          <div key={msg.id} className="message">
+            {msg.content && <p>{msg.content}</p>}
+            {msg.image_url && (
+              <img src={msg.image_url} alt="uploaded" width={200} />
+            )}
+          </div>
+        ))}
+      </div>
 
-export default function ChatPanel() {
-  const [file, setFile] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState<string>("");
-  const [title, setTitle] = useState<string>("");
-
-  const handleUpload = async () => {
-    if (!file) return alert("Please choose a file");
-
-    // 1️⃣ Upload to Storage
-    const url = await uploadImage(file, "memes");
-    if (!url) return alert("Upload failed!");
-
-    setImageUrl(url);
-
-    // 2️⃣ Save URL + Title in DB
-    const { error } = await supabase.from("posts").insert([{ title, image_url: url }]);
-
-    if (error) {
-      console.error("DB Insert Error:", error);
-      alert("Error saving to database");
-    } else {
-      alert("Meme uploaded successfully!");
-    }
-  };
-
-  return (
-    <div className="p-4">
       <input
         type="text"
-        placeholder="Enter meme title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="border p-2 mb-2 w-full"
+        value={newMessage}
+        onChange={(e) => setNewMessage(e.target.value)}
+        placeholder="Type a message"
       />
-
-      <input
-        type="file"
-        onChange={(e) => setFile(e.target.files?.[0] || null)}
-        className="mb-2"
-      />
-
-      <button onClick={handleUpload} className="bg-blue-500 text-white p-2">
-        Upload Meme
-      </button>
-
-      {imageUrl && (
-        <div className="mt-4">
-          <p>Preview:</p>
-          <img src={imageUrl} alt="Meme" width={200} />
-        </div>
-      )}
+      <input type="file" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
+      <button onClick={handleSendMessage}>Send</button>
     </div>
   );
 }
