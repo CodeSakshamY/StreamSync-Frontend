@@ -31,3 +31,33 @@ export default function PostItem({ post, onVote }: { post: Post; onVote: (delta:
     </Card>
   )
 }
+import { useState } from "react";
+import { uploadImage } from "@/lib/uploadImage";
+
+export default function CreatePost() {
+  const [file, setFile] = useState(null);
+  const [imageUrl, setImageUrl] = useState("");
+
+  const handleUpload = async () => {
+    if (!file) return alert("Please choose a file");
+    const url = await uploadImage(file);
+    if (url) {
+      setImageUrl(url);
+      alert("Image uploaded successfully!");
+    }
+  };
+
+  return (
+    <div>
+      <input type="file" onChange={(e) => setFile(e.target.files[0])} />
+      <button onClick={handleUpload}>Upload Meme</button>
+
+      {imageUrl && (
+        <div>
+          <p>Uploaded Image:</p>
+          <img src={imageUrl} alt="Meme" width={200} />
+        </div>
+      )}
+    </div>
+  );
+}
