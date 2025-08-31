@@ -61,3 +61,85 @@ export default function CreatePost() {
     </div>
   );
 }
+"use client";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { uploadImage } from "@/lib/uploadImage";
+
+export default function ChatPanel() {
+  const [file, setFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [title, setTitle] = useState<string>("");
+  const [posts, setPosts] = useState<any[]>([]);
+
+  // Fetch existing posts
+  const fetchPosts = async () => {
+    const { data, error } = await supabase.from("posts").select("*").order("id", { ascending: false });
+    if (!error && data) setPosts(data);
+  };
+
+  // Upload new meme
+  const handleUpload = async () => {
+    if (!file) return alert("Please choose a file");
+
+    const url = await uploadImage(file, "memes");
+    if (!url) return alert("Upload failed!");
+
+    setImageUrl(url);
+
+    const { error } = await supabase.from("posts").insert([{ title, image_url: url }]);
+    if (error) console.error("DB Insert Error:", error);
+    else setTitle(""); // Clear title field
+  };
+
+  // Realtime subscription
+  useEffect(() => {
+    fetchPosts();
+
+    const channel = supabase
+      .channel("realtime-posts")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "posts" },
+        (payload) => {
+          setPosts((prev) => [payload.new, ...prev]); // Add new post on top
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  return (
+    <div className="p-4">
+      <input
+        type="text"
+        placeholder="Enter meme title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="border p-2 mb-2 w-full"
+      />
+
+      <input
+        type="file"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        className="mb-2"
+      />
+
+      <button onClick={handleUpload} className="bg-blue-500 text-white p-2">
+        Upload Meme
+      </button>
+
+      <div className="mt-4">
+        {posts.map((post) => (
+          <div key={post.id} className="border p-2 mb-2">
+            <h3 className="font-bold">{post.title}</h3>
+            <img src={post.image_url} alt="Meme" width={200} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
