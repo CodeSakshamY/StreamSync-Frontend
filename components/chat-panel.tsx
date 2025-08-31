@@ -73,3 +73,6 @@ export default function ChatPanel({
     </Card>
   )
 }
+const { data, error } = await supabase
+  .from("posts")
+  .insert([{ title: "My Meme", image_url: imageUrl }]);
