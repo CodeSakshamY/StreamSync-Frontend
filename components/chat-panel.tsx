@@ -76,3 +76,26 @@ export default function ChatPanel({
 const { data, error } = await supabase
   .from("posts")
   .insert([{ title: "My Meme", image_url: imageUrl }]);
+import { useState } from "react";
+import { uploadImage } from "@/lib/uploadImage";
+
+export default function ChatPanel() {
+  const [file, setFile] = useState<File | null>(null);
+
+  const handleUpload = async () => {
+    if (!file) return;
+    const url = await uploadImage(file, "memes");
+    if (url) {
+      // send image URL as a message
+      sendMessage({ type: "image", content: url });
+    }
+  };
+
+  return (
+    <div>
+      <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+      <button onClick={handleUpload}>Upload Image</button>
+      {/* existing message input + send button here */}
+    </div>
+  );
+}
